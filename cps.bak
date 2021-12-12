@@ -1,0 +1,154 @@
+
+/// CPS style evaluator.
+/// This could be improved by using Rc's as well for the AST, since it is often cloned to satisfy
+/// the borrowing and ownership rules of Rust.
+
+
+use crate::{values::{Val, Exp}, env::{EnvRef, Env}, ast::Expr};
+use std::{cell::RefCell, rc::Rc};
+
+
+struct HaltContinuation;
+
+#[derive(Clone)]
+enum ERes {
+    Value(Exp, ContinuationRef),
+    Stop(Exp)
+}
+
+trait Continuation  {
+    fn apply(self: Box<Self>, vlu: Exp) -> ERes;
+}
+
+impl<F> Continuation for F 
+    where F: FnOnce(Exp) -> ERes {
+        fn apply(self: Box<Self>, vlu: Exp) -> ERes {
+            self(vlu)
+        }
+}
+
+type ContinuationRef = Box<dyn Continuation + 't>;
+
+pub struct Evaluator<'t> {
+    continuations: RefCell<Vec<ContinuationRef<'t>>>,
+}
+
+impl<'t> Evaluator<'t> {
+    fn push_continuation(&'t self, cnt: ContinuationRef<'t>) {
+        self.continuations.borrow_mut().push(cnt);
+    }
+    
+    fn continue_with(&self, v: Exp) -> ERes {
+        let cnt = self.continuations.borrow_mut().pop().expect("At least one continuation before stop");
+        cnt.apply(v)
+    }
+
+    fn apply(&'t self, operator: Exp, operands: Vec<Exp>) -> ERes {
+        match &*operator.borrow() {
+            Val::Proc(lexical_env, body, arguments) =>  {
+                // add the arguments to the lexical env 
+                let mut extended_env = lexical_env.clone();
+                for (name, operand) in arguments.iter().zip(operands) {
+                    extended_env = Env::extend((*name).clone(), operand, extended_env.clone());
+                }
+
+                let result = self.eval_sequence(body.clone(), extended_env, 0);
+                result
+            },
+            Val::Native(f) => ERes::Value(f(operands)),
+            _ => panic!("unsupported apply")
+        }
+    }
+
+    fn eval_sequence(&'t self, sequence: Vec<Expr>, env: EnvRef, position: usize) -> ERes {
+        if position < sequence.len()-1 {
+            let continue_env = env.clone();
+            let first_expression = sequence[position].clone();
+            self.push_continuation(Box::new(move |_value|{
+                self.eval_sequence(sequence, continue_env, position+1)
+            }));
+
+            self.eval(first_expression, env)
+        } else {
+            self.eval(sequence[position].clone(), env)
+        }
+    }
+
+    fn evaluate_operands(&'t self, operator: Exp, operands: Vec<Expr>, mut operand_values: Vec<Exp>, env: EnvRef, position: usize) -> ERes {
+        if position < operands.len() {
+            self.apply(operator, operand_values)
+        } else {
+            let operand = operands[position].clone();
+            let continue_env = env.clone();
+            self.push_continuation(Box::new(move |operand| {
+                operand_values.push(operand);
+                self.evaluate_operands(operator, operands, operand_values, continue_env, position+1)
+            }));
+
+            self.eval(operand, env)
+        }
+    }
+
+    fn eval(&self, exp: Expr, env: EnvRef, cnt: ContinuationRef) -> ERes {
+        use Expr::*;
+        match exp {
+            Ident(name) => ERes::Value(env.lookup(name.to_string())), 
+            Num(n) => ERes::Value(Val::wrap(Val::Number(n))), 
+            If { cond, cnsq, alt } =>  {
+                let continue_env = env.clone();
+                let k = Box::new(move |value| {
+                    if Val::is_true(value) {
+                        self.eval(*cnsq, continue_env, cnt)
+                    } else {
+                        self.eval(*alt, continue_env, cnt)
+                    }
+                });
+
+                self.eval(*cond, env, k)
+            },
+
+            Letrec { name, binding, body } =>  {
+                let extended_env = Env::extend(name.clone(), Val::wrap(Val::Nil), env);
+                let continue_env = extended_env.clone();
+                let k = Box::new(move |value| {
+                    continue_env.update(name, value);
+                    self.eval(*body, continue_env, cnt)
+                });
+
+                self.eval(*binding, extended_env, k)
+            },
+
+            Apply { operator, operands } => {
+                let continue_env = env.clone();
+                let k = Box::new(move |operator_value| {
+                    self.evaluate_operands(operator_value, operands, Vec::new(), continue_env, 0)
+                });
+
+                self.eval(*operator, env, k)
+            }
+
+            Lambda { arguments, body } => 
+                ERes::Value(Val::wrap(Val::Proc(env.clone(), body, arguments))),
+            
+        }
+    }
+
+
+    pub  fn new<'s>() -> Evaluator<'s> {
+        Evaluator { continuations: RefCell::new(Vec::new()) }
+    }
+}
+
+
+pub fn eval(ex: Expr, env: EnvRef) -> Exp { 
+    let evaluator = Evaluator::new();
+    let mut result = evaluator.eval(ex, env); 
+    loop {
+        use ERes::*;
+        match result {
+            Value(v) => 
+                result = evaluator.continue_with(v),
+            Stop(v) => break v
+        }
+    }
+}
