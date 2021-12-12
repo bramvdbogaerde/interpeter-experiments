@@ -35,11 +35,14 @@ type EvRef = Rc<Evaluator>;
 
 impl Evaluator {
     fn push_continuation(&self, cnt: ContinuationRef) {
+        //println!("DEBUG: size of continuation stack {}", self.continuations.borrow().len());
         self.continuations.borrow_mut().push(cnt);
     }
     
     fn continue_with(&self, v: Exp) -> ERes {
         let cnt = self.continuations.borrow_mut().pop().expect("At least one continuation before stop");
+
+        //println!("DEBUG: size of continuation stack {}", self.continuations.borrow().len());
         cnt.apply(v)
     }
 
