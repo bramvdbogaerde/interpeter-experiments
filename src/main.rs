@@ -4,9 +4,12 @@ mod env;
 mod examples;
 mod natives;
 mod evaluator;
+mod parser;
+mod errors;
 
+use std::io::{self, BufRead, Write};
 
-use values::{Exp, Val};
+use values::{Exp, Val, print_exp};
 use natives::*;
 use env::Env;
 
@@ -20,13 +23,20 @@ fn main() {
 
     let mut initial_env = Env::empty();
     for native in natives {
-        initial_env = Env::extend(native.0.to_string(), Val::wrap(Val::Native(native.1)), initial_env.clone())
+        initial_env = Env::extend(native.0.to_string(), Val::wrap(Val::Native(native.0.to_string(), native.1)), initial_env.clone())
     }
 
-    let factorial_program = examples::sum_iter();
-    //let result = evaluator::recursive::eval(factorial_program.clone(), initial_env.clone());
-    //println!("Result (recursive eval) is {:?}", result);
-    let result2 = evaluator::cps::eval(factorial_program, initial_env);
-    println!("Result (cps eval) {:?}", result2);
-
+    // REPL
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    print!("minischeme> ");
+    let _ = stdout.flush();
+    for line in stdin.lock().lines() {
+       let expr = crate::parser::parse(&line.as_ref().unwrap()).unwrap();
+        let result = evaluator::cps::eval(expr, initial_env.clone());
+        println!("{}", print_exp(result));
+        print!("minischeme> ");
+        let _ = stdout.flush();
+     
+    }
 }

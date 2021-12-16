@@ -58,7 +58,7 @@ impl Evaluator {
                 let result = Evaluator::eval_sequence(ev, body.clone(), extended_env, 0);
                 result
             },
-            Val::Native(f) => ERes::Value(f(operands)),
+            Val::Native(_, f) => ERes::Value(f(operands)),
             _ => panic!("unsupported apply")
         }
     }
@@ -98,6 +98,9 @@ impl Evaluator {
         use Expr::*;
         match exp {
             Ident(name) => ERes::Value(env.lookup(name.to_string())), 
+            Str(s) => ERes::Value(Val::wrap(Val::Str(s))),
+            Bool(b) => ERes::Value(Val::wrap(Val::Bool(b))),
+            Nil => ERes::Value(Val::wrap(Val::Nil)),
             Num(n) => ERes::Value(Val::wrap(Val::Number(n))), 
             If { cond, cnsq, alt } =>  {
                 let continue_env = env.clone();

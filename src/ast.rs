@@ -25,5 +25,11 @@ pub enum Expr {
         cond: Box<Expr>,
         cnsq: Box<Expr>,
         alt: Box<Expr>
-    }
+    },
+
+    Bool(bool),
+
+    Nil,
+
+    Str(String)
 }

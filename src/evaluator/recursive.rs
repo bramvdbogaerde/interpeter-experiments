@@ -24,7 +24,7 @@ fn apply(operator: Exp, operands: Vec<Exp>) -> Exp {
             let result = eval_sequence(body.clone(), extended_env);
             result
         },
-        Val::Native(f) => f(operands),
+        Val::Native(_, f) => f(operands),
         _ => panic!("unsupported apply")
 
     }
@@ -35,6 +35,9 @@ pub fn eval(exp: Expr, env: Rc<Env>) -> Exp {
     match exp {
         Ident(name) => env.lookup(name),
         Num(n) => Val::wrap(Val::Number(n)),
+        Str(s) => Val::wrap(Val::Str(s)),
+        Bool(b) => Val::wrap(Val::Bool(b)),
+        Nil => Val::wrap(Val::Nil),
         //Begin { expressions } => eval_sequence(expressions, env),
         If { cond, cnsq, alt } =>  {
             let cond_value = eval(*cond, env.clone());
